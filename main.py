@@ -164,6 +164,263 @@ def should_respond_to_message(message: discord.Message) -> bool:
 
     return False
 
+class MediaCommands:
+    def __init__(self, bot, ai_with_memory):
+        self.bot = bot
+        self.ai_with_memory = ai_with_memory
+        self.media_handler = None
+
+    async def setup(self):
+        """Initialize media handler"""
+        self.media_handler = MediaHandler()
+        await self.media_handler.__aenter__()
+
+    async def cleanup(self):
+        """Cleanup media handler"""
+        if self.media_handler:
+            await self.media_handler.__aexit__(None, None, None)
+            self.media_handler.cleanup()
+
+async def handle_media_commands(message, ai_with_memory):
+    """Handle media commands with ! prefix"""
+    content = message.content.strip()
+
+    # Check if it's a command
+    if not content.startswith('!'):
+        return False
+
+    # Parse command
+    parts = content[1:].split()
+    if not parts:
+        return False
+
+    command = parts[0].lower()
+    args = parts[1:]
+
+    print(f"Processing command: {command}")  # Debug line
+
+    try:
+        if command == 'help':
+            help_text = """
+🤖 **Media Analysis Commands:**
+
+`!image` - Analyze images (attach image or provide URL)
+`!file` - Analyze documents and files (attach file or provide URL)
+`!link <URL>` - Scrape and analyze web pages
+`!search <query>` - Enhanced web search with AI analysis
+`!help` - Show this help message
+
+**Examples:**
+• `!image` (with image attachment)
+• `!file` (with document attachment)
+• `!link https://example.com`
+• `!search artificial intelligence news`
+"""
+            await message.reply(help_text)
+            return True
+
+        elif command == 'image':
+            await handle_image_analysis(message, args, ai_with_memory)
+            return True
+
+        elif command == 'file':
+            await handle_file_analysis(message, args, ai_with_memory)
+            return True
+
+        elif command == 'link':
+            await handle_link_analysis(message, args, ai_with_memory)
+            return True
+
+        elif command == 'search':
+            await handle_search_analysis(message, args, ai_with_memory)
+            return True
+
+    except Exception as e:
+        await message.reply(f"❌ Error processing command: {str(e)}")
+        print(f"Command error: {e}")  # Debug line
+        return True
+
+    return False
+
+async def handle_image_analysis(message, args, ai_with_memory):
+    """Handle image analysis"""
+    print("Handling image analysis...")  # Debug line
+
+    # Get image URLs
+    image_urls = []
+
+    # Check attachments
+    for attachment in message.attachments:
+        if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')):
+            image_urls.append(attachment.url)
+            print(f"Found image attachment: {attachment.url}")  # Debug line
+
+    # Check for URLs in args
+    if args:
+        url_pattern = r'https?://[^\s]+'
+        for arg in args:
+            if re.match(url_pattern, arg):
+                image_urls.append(arg)
+                print(f"Found image URL: {arg}")  # Debug line
+
+    if not image_urls:
+        await message.reply("❌ Please attach an image or provide an image URL to analyze.")
+        return
+
+    await message.add_reaction("🔍")
+
+    async with MediaHandler() as handler:
+        for url in image_urls[:2]:  # Limit to 2 images
+            try:
+                result, error = await handler.process_media(url)
+                if error:
+                    await message.reply(f"❌ Error: {error}")
+                    continue
+
+                # Create AI prompt
+                prompt = f"""Analyze this image:
+- Format: {result.get('format', 'Unknown')}
+- Size: {result.get('size', 'Unknown')}
+- Text extracted: {result.get('text', 'No text found')}
+
+Please describe what you can determine about this image."""
+
+                # Get AI response (adjust this based on your AI client)
+                ai_response = await get_ai_response(prompt, ai_with_memory, message.author.id)
+
+                response = f"🖼️ **Image Analysis:**\n{ai_response}"
+                await message.reply(response[:2000])
+
+            except Exception as e:
+                await message.reply(f"❌ Error analyzing image: {str(e)}")
+
+async def handle_file_analysis(message, args, ai_with_memory):
+    """Handle file analysis"""
+    print("Handling file analysis...")  # Debug line
+
+    file_urls = []
+
+    # Check attachments
+    for attachment in message.attachments:
+        file_urls.append(attachment.url)
+        print(f"Found file attachment: {attachment.url}")  # Debug line
+
+    # Check for URLs in args
+    if args:
+        url_pattern = r'https?://[^\s]+'
+        for arg in args:
+            if re.match(url_pattern, arg):
+                file_urls.append(arg)
+                print(f"Found file URL: {arg}")  # Debug line
+
+    if not file_urls:
+        await message.reply("❌ Please attach a file or provide a file URL to analyze.")
+        return
+
+    await message.add_reaction("📄")
+
+    async with MediaHandler() as handler:
+        for url in file_urls[:2]:  # Limit to 2 files
+            try:
+                result, error = await handler.process_media(url)
+                if error:
+                    await message.reply(f"❌ Error: {error}")
+                    continue
+
+                # Create AI prompt
+                prompt = f"""Analyze this file:
+- Type: {result.get('type', 'Unknown')}
+- Size: {result.get('size', 0)} bytes
+- Content preview: {result.get('content', 'No readable content')[:1000]}
+
+Please summarize what this file contains."""
+
+                # Get AI response
+                ai_response = await get_ai_response(prompt, ai_with_memory, message.author.id)
+
+                response = f"📄 **File Analysis:**\n{ai_response}"
+                await message.reply(response[:2000])
+
+            except Exception as e:
+                await message.reply(f"❌ Error analyzing file: {str(e)}")
+
+async def handle_link_analysis(message, args, ai_with_memory):
+    """Handle link analysis"""
+    print("Handling link analysis...")  # Debug line
+
+    if not args:
+        await message.reply("❌ Please provide a URL. Usage: `!link <URL>`")
+        return
+
+    url = args[0]
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+
+    await message.add_reaction("🔗")
+
+    async with MediaHandler() as handler:
+        try:
+            result, error = await handler.scrape_webpage(url)
+            if error:
+                await message.reply(f"❌ Error: {error}")
+                return
+
+            # Create AI prompt
+            prompt = f"""Analyze this webpage:
+- Title: {result.get('title', 'No title')}
+- URL: {result.get('url', url)}
+- Content: {result.get('content', 'No content')[:2000]}
+
+Please provide a summary of this webpage."""
+
+            # Get AI response
+            ai_response = await get_ai_response(prompt, ai_with_memory, message.author.id)
+
+            response = f"🔗 **Webpage Analysis:**\n**Title:** {result.get('title', 'No title')}\n{ai_response}"
+            await message.reply(response[:2000])
+
+        except Exception as e:
+            await message.reply(f"❌ Error analyzing webpage: {str(e)}")
+
+async def handle_search_analysis(message, args, ai_with_memory):
+    """Handle search analysis"""
+    print("Handling search analysis...")  # Debug line
+
+    if not args:
+        await message.reply("❌ Please provide search terms. Usage: `!search <query>`")
+        return
+
+    query = ' '.join(args)
+    await message.add_reaction("🔍")
+
+    try:
+        # Use your existing search function or create a simple one
+        prompt = f"Please search for and provide information about: {query}"
+        ai_response = await get_ai_response(prompt, ai_with_memory, message.author.id)
+
+        response = f"🔍 **Search Results for:** {query}\n\n{ai_response}"
+        await message.reply(response[:2000])
+
+    except Exception as e:
+        await message.reply(f"❌ Error performing search: {str(e)}")
+
+async def get_ai_response(prompt, ai_with_memory, user_id):
+    """Get AI response - adjust this based on your AI client structure"""
+    try:
+        # This is a generic version - you'll need to adjust based on your AI client
+        if hasattr(ai_with_memory, 'get_response'):
+            return await ai_with_memory.get_response(prompt, user_id)
+        elif hasattr(ai_with_memory, 'generate_response'):
+            return await ai_with_memory.generate_response(prompt, user_id)
+        elif hasattr(ai_with_memory, 'chat'):
+            return await ai_with_memory.chat(prompt, user_id)
+        else:
+            # Fallback - try to call it directly
+            return await ai_with_memory(prompt)
+    except Exception as e:
+        print(f"AI client error: {e}")
+        return f"Error getting AI response: {str(e)}"
+
 @bot.event
 async def on_message(message: discord.Message):
     """Handle incoming messages, processing AI responses, rate limits, and commands."""
@@ -176,12 +433,12 @@ async def on_message(message: discord.Message):
         await bot.process_commands(message)
 
         # Handle media commands first - if handled, don't process further
-        if await handle_media_commands(message, your_ai_client):
+        if await handle_media_commands(message, ai_with_memory):
             return
 
         # Process media commands (second check) - if handled, don't process further
-        if await process_media_commands(message, your_ai_client):
-            return
+        #if await process_media_commands(message, ai_with_memory):
+            #return
 
         # Add message to channel history regardless of whether bot will respond
         if memory_service and not message.author.bot and hasattr(message.channel, 'id'):
@@ -417,23 +674,6 @@ def should_search_web(content: str) -> bool:
         return False
 
     return False
-
-class MediaCommands:
-    def __init__(self, bot, ai_client):
-        self.bot = bot
-        self.ai_client = ai_client
-        self.media_handler = None
-
-    async def setup(self):
-        """Initialize media handler"""
-        self.media_handler = MediaHandler()
-        await self.media_handler.__aenter__()
-
-    async def cleanup(self):
-        """Cleanup media handler"""
-        if self.media_handler:
-            await self.media_handler.__aexit__(None, None, None)
-            self.media_handler.cleanup()
 
 async def process_message_with_search_and_context(content: str, user_id: str, channel_id: str) -> str:
     """Process a user message, optionally performing a web search and using channel context."""
@@ -1391,7 +1631,7 @@ if __name__ == "__main__":
         logger.info("Bot application finished.")
 
 
-async def handle_image_command(message, args, ai_client, media_handler):
+async def handle_image_command(message, args, ai_with_memory, media_handler):
     """Handle !image command to analyze images"""
     try:
         # Check for attachments
@@ -1432,7 +1672,7 @@ Please provide insights about what you can determine from this image based on th
 """
 
                     # Get AI analysis
-                    ai_response = await ai_client.get_response(analysis_prompt, message.author.id)
+                    ai_response = await ai_with_memory.get_response(analysis_prompt, message.author.id)
                     results.append(f"🖼️ **Image Analysis:**\n{ai_response}")
 
         # Send results
@@ -1442,7 +1682,7 @@ Please provide insights about what you can determine from this image based on th
     except Exception as e:
         await message.reply(f"❌ Error analyzing image: {str(e)}")
 
-async def handle_file_command(message, args, ai_client, media_handler):
+async def handle_file_command(message, args, ai_with_memory, media_handler):
     """Handle !file command to analyze documents"""
     try:
         file_urls = []
@@ -1481,7 +1721,7 @@ Please provide insights about this file and summarize its content if it's readab
 """
 
                     # Get AI analysis
-                    ai_response = await ai_client.get_response(analysis_prompt, message.author.id)
+                    ai_response = await ai_with_memory.get_response(analysis_prompt, message.author.id)
                     results.append(f"📄 **File Analysis:**\n{ai_response}")
 
         # Send results
@@ -1491,7 +1731,7 @@ Please provide insights about this file and summarize its content if it's readab
     except Exception as e:
         await message.reply(f"❌ Error analyzing file: {str(e)}")
 
-async def handle_link_command(message, args, ai_client, media_handler):
+async def handle_link_command(message, args, ai_with_memory, media_handler):
     """Handle !link command to scrape and analyze web pages"""
     try:
         if not args:
@@ -1526,7 +1766,7 @@ Please provide a summary of this webpage and highlight the key information found
 """
 
             # Get AI analysis
-            ai_response = await ai_client.get_response(analysis_prompt, message.author.id)
+            ai_response = await ai_with_memory.get_response(analysis_prompt, message.author.id)
 
             response = f"🔗 **Webpage Analysis:**\n**Title:** {result['title']}\n**URL:** {result['url']}\n\n{ai_response}"
             await message.reply(response[:2000])  # Discord message limit
@@ -1534,7 +1774,7 @@ Please provide a summary of this webpage and highlight the key information found
     except Exception as e:
         await message.reply(f"❌ Error analyzing webpage: {str(e)}")
 
-async def handle_search_command(message, args, ai_client):
+async def handle_search_command(message, args, ai_with_memory):
     """Enhanced search command with AI analysis"""
     try:
         if not args:
@@ -1566,7 +1806,7 @@ Please synthesize the information and provide a helpful response.
 """
 
         # Get AI analysis
-        ai_response = await ai_client.get_response(analysis_prompt, message.author.id)
+        ai_response = await ai_with_memory.get_response(analysis_prompt, message.author.id)
 
         response = f"🔍 **Search Results for:** {query}\n\n{ai_response}"
         await message.reply(response[:2000])  # Discord message limit
@@ -1575,7 +1815,7 @@ Please synthesize the information and provide a helpful response.
         await message.reply(f"❌ Error performing search: {str(e)}")
 
 # Add this to your main message handler (where you process commands)
-async def process_media_commands(message, ai_client):
+'''async def process_media_commands(message, ai_with_memory):
     """Process media-related commands with ! prefix"""
     content = message.content.strip()
 
@@ -1597,16 +1837,16 @@ async def process_media_commands(message, ai_client):
 
     try:
         if command == 'image':
-            await handle_image_command(message, args, ai_client, media_handler)
+            await handle_image_command(message, args, ai_with_memory, media_handler)
             return True
         elif command == 'file':
-            await handle_file_command(message, args, ai_client, media_handler)
+            await handle_file_command(message, args, ai_with_memory, media_handler)
             return True
         elif command == 'link':
-            await handle_link_command(message, args, ai_client, media_handler)
+            await handle_link_command(message, args, ai_with_memory, media_handler)
             return True
         elif command == 'search':
-            await handle_search_command(message, args, ai_client)
+            await handle_search_command(message, args, ai_with_memory)
             return True
         elif command == 'help':
             help_text = """
@@ -1631,246 +1871,6 @@ async def process_media_commands(message, ai_client):
     finally:
         media_handler.cleanup()
 
-    return False
+    return False'''
 
-
-async def handle_media_commands(message, ai_client):
-    """Handle media commands with ! prefix"""
-    content = message.content.strip()
-
-    # Check if it's a command
-    if not content.startswith('!'):
-        return False
-
-    # Parse command
-    parts = content[1:].split()
-    if not parts:
-        return False
-
-    command = parts[0].lower()
-    args = parts[1:]
-
-    print(f"Processing command: {command}")  # Debug line
-
-    try:
-        if command == 'help':
-            help_text = """
-🤖 **Media Analysis Commands:**
-
-`!image` - Analyze images (attach image or provide URL)
-`!file` - Analyze documents and files (attach file or provide URL)
-`!link <URL>` - Scrape and analyze web pages
-`!search <query>` - Enhanced web search with AI analysis
-`!help` - Show this help message
-
-**Examples:**
-• `!image` (with image attachment)
-• `!file` (with document attachment)
-• `!link https://example.com`
-• `!search artificial intelligence news`
-"""
-            await message.reply(help_text)
-            return True
-
-        elif command == 'image':
-            await handle_image_analysis(message, args, ai_client)
-            return True
-
-        elif command == 'file':
-            await handle_file_analysis(message, args, ai_client)
-            return True
-
-        elif command == 'link':
-            await handle_link_analysis(message, args, ai_client)
-            return True
-
-        elif command == 'search':
-            await handle_search_analysis(message, args, ai_client)
-            return True
-
-    except Exception as e:
-        await message.reply(f"❌ Error processing command: {str(e)}")
-        print(f"Command error: {e}")  # Debug line
-        return True
-
-    return False
-
-async def handle_image_analysis(message, args, ai_client):
-    """Handle image analysis"""
-    print("Handling image analysis...")  # Debug line
-
-    # Get image URLs
-    image_urls = []
-
-    # Check attachments
-    for attachment in message.attachments:
-        if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')):
-            image_urls.append(attachment.url)
-            print(f"Found image attachment: {attachment.url}")  # Debug line
-
-    # Check for URLs in args
-    if args:
-        url_pattern = r'https?://[^\s]+'
-        for arg in args:
-            if re.match(url_pattern, arg):
-                image_urls.append(arg)
-                print(f"Found image URL: {arg}")  # Debug line
-
-    if not image_urls:
-        await message.reply("❌ Please attach an image or provide an image URL to analyze.")
-        return
-
-    await message.add_reaction("🔍")
-
-    async with MediaHandler() as handler:
-        for url in image_urls[:2]:  # Limit to 2 images
-            try:
-                result, error = await handler.process_media(url)
-                if error:
-                    await message.reply(f"❌ Error: {error}")
-                    continue
-
-                # Create AI prompt
-                prompt = f"""Analyze this image:
-- Format: {result.get('format', 'Unknown')}
-- Size: {result.get('size', 'Unknown')}
-- Text extracted: {result.get('text', 'No text found')}
-
-Please describe what you can determine about this image."""
-
-                # Get AI response (adjust this based on your AI client)
-                ai_response = await get_ai_response(prompt, ai_client, message.author.id)
-
-                response = f"🖼️ **Image Analysis:**\n{ai_response}"
-                await message.reply(response[:2000])
-
-            except Exception as e:
-                await message.reply(f"❌ Error analyzing image: {str(e)}")
-
-async def handle_file_analysis(message, args, ai_client):
-    """Handle file analysis"""
-    print("Handling file analysis...")  # Debug line
-
-    file_urls = []
-
-    # Check attachments
-    for attachment in message.attachments:
-        file_urls.append(attachment.url)
-        print(f"Found file attachment: {attachment.url}")  # Debug line
-
-    # Check for URLs in args
-    if args:
-        url_pattern = r'https?://[^\s]+'
-        for arg in args:
-            if re.match(url_pattern, arg):
-                file_urls.append(arg)
-                print(f"Found file URL: {arg}")  # Debug line
-
-    if not file_urls:
-        await message.reply("❌ Please attach a file or provide a file URL to analyze.")
-        return
-
-    await message.add_reaction("📄")
-
-    async with MediaHandler() as handler:
-        for url in file_urls[:2]:  # Limit to 2 files
-            try:
-                result, error = await handler.process_media(url)
-                if error:
-                    await message.reply(f"❌ Error: {error}")
-                    continue
-
-                # Create AI prompt
-                prompt = f"""Analyze this file:
-- Type: {result.get('type', 'Unknown')}
-- Size: {result.get('size', 0)} bytes
-- Content preview: {result.get('content', 'No readable content')[:1000]}
-
-Please summarize what this file contains."""
-
-                # Get AI response
-                ai_response = await get_ai_response(prompt, ai_client, message.author.id)
-
-                response = f"📄 **File Analysis:**\n{ai_response}"
-                await message.reply(response[:2000])
-
-            except Exception as e:
-                await message.reply(f"❌ Error analyzing file: {str(e)}")
-
-async def handle_link_analysis(message, args, ai_client):
-    """Handle link analysis"""
-    print("Handling link analysis...")  # Debug line
-
-    if not args:
-        await message.reply("❌ Please provide a URL. Usage: `!link <URL>`")
-        return
-
-    url = args[0]
-    if not url.startswith(('http://', 'https://')):
-        url = 'https://' + url
-
-    await message.add_reaction("🔗")
-
-    async with MediaHandler() as handler:
-        try:
-            result, error = await handler.scrape_webpage(url)
-            if error:
-                await message.reply(f"❌ Error: {error}")
-                return
-
-            # Create AI prompt
-            prompt = f"""Analyze this webpage:
-- Title: {result.get('title', 'No title')}
-- URL: {result.get('url', url)}
-- Content: {result.get('content', 'No content')[:2000]}
-
-Please provide a summary of this webpage."""
-
-            # Get AI response
-            ai_response = await get_ai_response(prompt, ai_client, message.author.id)
-
-            response = f"🔗 **Webpage Analysis:**\n**Title:** {result.get('title', 'No title')}\n{ai_response}"
-            await message.reply(response[:2000])
-
-        except Exception as e:
-            await message.reply(f"❌ Error analyzing webpage: {str(e)}")
-
-async def handle_search_analysis(message, args, ai_client):
-    """Handle search analysis"""
-    print("Handling search analysis...")  # Debug line
-
-    if not args:
-        await message.reply("❌ Please provide search terms. Usage: `!search <query>`")
-        return
-
-    query = ' '.join(args)
-    await message.add_reaction("🔍")
-
-    try:
-        # Use your existing search function or create a simple one
-        prompt = f"Please search for and provide information about: {query}"
-        ai_response = await get_ai_response(prompt, ai_client, message.author.id)
-
-        response = f"🔍 **Search Results for:** {query}\n\n{ai_response}"
-        await message.reply(response[:2000])
-
-    except Exception as e:
-        await message.reply(f"❌ Error performing search: {str(e)}")
-
-async def get_ai_response(prompt, ai_client, user_id):
-    """Get AI response - adjust this based on your AI client structure"""
-    try:
-        # This is a generic version - you'll need to adjust based on your AI client
-        if hasattr(ai_client, 'get_response'):
-            return await ai_client.get_response(prompt, user_id)
-        elif hasattr(ai_client, 'generate_response'):
-            return await ai_client.generate_response(prompt, user_id)
-        elif hasattr(ai_client, 'chat'):
-            return await ai_client.chat(prompt, user_id)
-        else:
-            # Fallback - try to call it directly
-            return await ai_client(prompt)
-    except Exception as e:
-        print(f"AI client error: {e}")
-        return f"Error getting AI response: {str(e)}"
 
