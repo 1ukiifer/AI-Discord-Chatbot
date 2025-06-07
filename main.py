@@ -17,6 +17,9 @@ import anthropic
 from dotenv import load_dotenv
 from media_handler import MediaHandler
 import re
+from memory import AIServiceWithMemory
+
+
 # Initialize colorama
 init(autoreset=True)
 
@@ -121,13 +124,10 @@ def is_rate_limited(user_id: str) -> bool:
 
     # Add current request timestamp
     user_requests.append(now)
-    return False
+    return Fals
 
-# 1. First, make sure your config.py has CREATOR_ID set properly
-# In your config.py file, add this line with your actual Discord user ID:
-CREATOR_ID = 123456789012345678  # Replace with your actual Discord user ID
+CREATOR_ID = 123456789012345678 
 
-# 2. Update the should_respond_to_message function to handle !ai command
 def should_respond_to_message(message: discord.Message) -> bool:
     """Determine if the bot should respond to a given message."""
     # Don't respond to self
@@ -165,23 +165,23 @@ def should_respond_to_message(message: discord.Message) -> bool:
     return False
 
 @bot.event
-async def on_message(message):
-    if message.author == bot.user:
-        return
-    if await handle_media_commands(message, your_ai_client):
-        return
-    # Process media commands first
-    if await process_media_commands(message, your_ai_client):
-        return  # Command was handled, don't process further
-
-
-# 3. Update the on_message event to properly handle creator recognition and !ai
-@bot.event
 async def on_message(message: discord.Message):
     """Handle incoming messages, processing AI responses, rate limits, and commands."""
     try:
+        # Skip if message is from the bot itself
+        if message.author == bot.user:
+            return
+
         # Process commands first
         await bot.process_commands(message)
+
+        # Handle media commands first - if handled, don't process further
+        if await handle_media_commands(message, your_ai_client):
+            return
+
+        # Process media commands (second check) - if handled, don't process further
+        if await process_media_commands(message, your_ai_client):
+            return
 
         # Add message to channel history regardless of whether bot will respond
         if memory_service and not message.author.bot and hasattr(message.channel, 'id'):
@@ -198,7 +198,7 @@ async def on_message(message: discord.Message):
 
         user_id = str(message.author.id)
 
-        # Check if message is from the creator - Fix the creator check
+        # Check if message is from the creator
         creator_id = getattr(Config, 'CREATOR_ID', None)
         is_creator = False
         if creator_id is not None:
@@ -237,7 +237,7 @@ async def on_message(message: discord.Message):
                 # If content is empty after cleaning
                 if not content:
                     if is_creator:
-                        await message.reply("Hello, Creator! How can I assist you today? 👑")
+                        await message.reply("Hello, Creator! How can I assist you today?")
                     else:
                         await message.reply("Hi! How can I help you today?")
                     return
@@ -267,10 +267,6 @@ async def on_message(message: discord.Message):
                     logger.error(f"Error during AI response generation: {e}", exc_info=True)
                     await message.reply("Sorry, I encountered an error generating a response. Please try again.")
                     return
-
-                # Add special creator acknowledgment if response is from creator
-                if is_creator and not response.startswith("👑"):
-                    response = f"👑 {response}"
 
                 # Split long responses into chunks if necessary
                 if len(response) > Config.MAX_MESSAGE_LENGTH:
@@ -346,39 +342,6 @@ async def on_message(message: discord.Message):
             except discord.Forbidden:
                 pass
 
-# 4. Update the creator_status command to show more debug info
-@bot.command(name='creator_status')
-async def creator_status(ctx):
-    """Check if the current user is recognized as the creator"""
-    creator_id = getattr(Config, 'CREATOR_ID', None)
-    is_creator = ctx.author.id == creator_id if creator_id else False
-
-    if is_creator:
-        embed = discord.Embed(
-            title="👑 Creator Recognition",
-            description="✅ **You are recognized as THE CREATOR!**",
-            color=0xFFD700  # Gold color
-        )
-        embed.add_field(name="Your ID", value=str(ctx.author.id), inline=True)
-        embed.add_field(name="Creator ID", value=str(creator_id), inline=True)
-        embed.add_field(name="Status", value="🔥 **ALPHA CREATOR** 🔥", inline=False)
-        embed.add_field(name="Privileges", value="• No rate limits\n• Special recognition\n• Priority support", inline=False)
-    else:
-        embed = discord.Embed(
-            title="👤 User Status",
-            description="You are a regular user.",
-            color=0x808080  # Gray color
-        )
-        embed.add_field(name="Your ID", value=str(ctx.author.id), inline=True)
-        embed.add_field(name="Creator ID", value=str(creator_id) if creator_id else "Not set", inline=True)
-        embed.add_field(name="Status", value="Regular User", inline=True)
-
-        # Add debug info
-        embed.add_field(name="Debug Info", value=f"Config has CREATOR_ID: {hasattr(Config, 'CREATOR_ID')}\nCreator ID value: {creator_id}\nTypes match: {type(ctx.author.id)} == {type(creator_id)}", inline=False)
-
-    await ctx.send(embed=embed)
-
-# 5. Add a simple !ai command as well
 @bot.command(name='ai')
 async def ai_cmd(ctx: commands.Context, *, message: str):
     """Chat with AI using !ai command"""
@@ -609,163 +572,6 @@ async def on_ready():
     except Exception as e:
         logger.error(f"Error in on_ready event: {e}", exc_info=True)
 
-@bot.event
-async def on_message(message: discord.Message):
-    """Handle incoming messages, processing AI responses, rate limits, and commands."""
-    try:
-        # Process commands first
-        await bot.process_commands(message)
-
-        # Add message to channel history regardless of whether bot will respond
-        if memory_service and not message.author.bot and hasattr(message.channel, 'id'):
-            memory_service.add_channel_message(
-                str(message.author.id),       # user_id (first parameter)
-                message.author.display_name,  # username (second parameter)  
-                message.content,              # content (third parameter)
-                str(message.channel.id)       # channel_id (fourth parameter)
-            )
-
-        # Check if bot should respond to this message
-        if not should_respond_to_message(message):
-            return
-
-        user_id = str(message.author.id)
-
-        # Check if message is from the creator
-        is_creator = message.author.id == getattr(Config, 'CREATOR_ID', None) if hasattr(Config, 'CREATOR_ID') else False
-
-        # Apply rate limiting (skip for creator)
-        if not is_creator and is_rate_limited(user_id):
-            await message.reply("⏰ Please slow down! You're sending messages too quickly.")
-            return
-
-        # Prevent duplicate processing
-        user_key = f"{message.author.id}_{message.channel.id}"
-        if user_key in active_conversations:
-            return
-
-        active_conversations.add(user_key)
-
-        try:
-            # Show typing indicator while processing
-            async with message.channel.typing():
-                content = message.content.strip()
-
-                # Clean message content: remove prefix and bot mentions
-                if content.startswith(Config.BOT_PREFIX):
-                    content = content[len(Config.BOT_PREFIX):].strip()
-
-                # Remove bot mentions from content
-                if bot.user in message.mentions:
-                    content = content.replace(f'<@{bot.user.id}>', '').strip()
-                    content = content.replace(f'<@!{bot.user.id}>', '').strip()
-
-                # If content is empty after cleaning
-                if not content:
-                    if is_creator:
-                        await message.reply("Hello, Creator! How can I assist you today?")
-                    else:
-                        await message.reply("Hi! How can I help you today?")
-                    return
-
-                # Add creator context to the prompt if it's the creator
-                if is_creator:
-                    content = f"[MESSAGE FROM THE CREATOR]: {content}"
-
-                # Process message with timeout, including channel context for memory
-                try:
-                    if hasattr(ai_with_memory, 'generate_response_with_channel_context'):
-                        response = await asyncio.wait_for(
-                            process_message_with_search_and_context(content, user_id, str(message.channel.id)),
-                            timeout=getattr(Config, 'RESPONSE_TIMEOUT_SECONDS', 30)
-                        )
-                    else:
-                        response = await asyncio.wait_for(
-                            ai_with_memory.generate_response(content, user_id),
-                            timeout=getattr(Config, 'RESPONSE_TIMEOUT_SECONDS', 30)
-                        )
-                except asyncio.TimeoutError:
-                    logger.warning(f"Message processing timeout for user {user_id} in channel {message.channel.id}")
-                    await message.reply("⏱️ Request timed out. Please try a shorter message or try again later.")
-                    return
-                except Exception as e:
-                    logger.error(f"Error during AI response generation: {e}", exc_info=True)
-                    await message.reply("Sorry, I encountered an error generating a response. Please try again.")
-                    return
-
-                # Split long responses into chunks if necessary
-                if len(response) > Config.MAX_MESSAGE_LENGTH:
-                    chunks = []
-                    current_chunk = ""
-
-                    for line in response.splitlines(keepends=True):
-                        if len(current_chunk) + len(line) > Config.MAX_MESSAGE_LENGTH - 50:
-                            if current_chunk.strip():
-                                chunks.append(current_chunk.strip())
-                            current_chunk = ""
-
-                            # If single line is too long, split it
-                            if len(line) > Config.MAX_MESSAGE_LENGTH - 50:
-                                while len(line) > Config.MAX_MESSAGE_LENGTH - 50:
-                                    chunks.append(line[:Config.MAX_MESSAGE_LENGTH - 50])
-                                    line = line[Config.MAX_MESSAGE_LENGTH - 50:]
-
-                            current_chunk = line
-                        else:
-                            current_chunk += line
-
-                    if current_chunk.strip():
-                        chunks.append(current_chunk.strip())
-
-                    # Send chunks sequentially
-                    for i, chunk in enumerate(chunks):
-                        if chunk.strip():
-                            try:
-                                if i == 0:
-                                    reply_msg = await message.reply(chunk.strip())
-                                else:
-                                    reply_msg = await message.channel.send(chunk.strip())
-                                if emoji_service:
-                                    await emoji_service.add_context_reactions(reply_msg, chunk)
-                            except discord.HTTPException as e:
-                                logger.warning(f"Failed to send message chunk: {e} | Chunk: {chunk[:50]}...")
-                                await message.channel.send("*(Failed to send a part of the response.)*")
-                else:
-                    # Send single response
-                    try:
-                        reply_msg = await message.reply(response)
-                        if emoji_service:
-                            await emoji_service.add_context_reactions(reply_msg, response)
-                    except discord.HTTPException as e:
-                        logger.warning(f"Failed to send message via reply: {e}. Attempting channel send.")
-                        try:
-                            await message.channel.send(response)
-                        except discord.HTTPException as e_fallback:
-                            logger.error(f"Failed to send message to channel as fallback: {e_fallback}. Message ID: {message.id}")
-                            await message.channel.send("Sorry, I couldn't send the response to you.")
-                    except Exception as e:
-                        logger.error(f"Unexpected error sending response: {e}", exc_info=True)
-                        await message.channel.send("An unexpected error occurred while sending the response.")
-
-        finally:
-            active_conversations.discard(user_key)
-
-    except discord.Forbidden:
-        logger.warning(f"Bot missing permissions to respond in channel {message.channel.id} of guild {message.guild.id}")
-    except discord.HTTPException as e:
-        logger.error(f"Discord HTTP error in message handler: {e}", exc_info=True)
-        if message.channel:
-            try:
-                await message.channel.send("❌ There was a Discord API error while processing your message. Please try again.")
-            except discord.Forbidden:
-                pass
-    except Exception as e:
-        logger.error(f"Unexpected error handling message {message.id}: {e}", exc_info=True)
-        if message.channel:
-            try:
-                await message.channel.send("Sorry, I encountered an unexpected error. Please try again.")
-            except discord.Forbidden:
-                pass
 
 # Basic Commands
 @bot.command(name='ping')
@@ -2067,3 +1873,4 @@ async def get_ai_response(prompt, ai_client, user_id):
     except Exception as e:
         print(f"AI client error: {e}")
         return f"Error getting AI response: {str(e)}"
+
