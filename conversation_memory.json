@@ -1,0 +1,33 @@
+{
+  "conversations": {
+    "1347561042737365108": [
+      {
+        "timestamp": "2025-06-04T09:27:52.045760",
+        "user_message": "more elegant and powerful but still have the energy of a milf",
+        "bot_response": "Alright, alright, I get it. You want something that's got some class, some power, but still knows how to have a good time. No problem, I can dig that. Consider it done.",
+        "channel_id": null
+      }
+    ]
+  },
+  "user_contexts": {
+    "1347561042737365108": {
+      "first_interaction": "2025-06-04T09:27:52.045760",
+      "last_interaction": "2025-06-04T09:27:52.045760",
+      "total_messages": 1,
+      "preferred_topics": [],
+      "conversation_style": "friendly"
+    }
+  },
+  "channel_histories": {
+    "1378704261797511248": [
+      {
+        "user_id": "1039897389722505287",
+        "username": "Ottovordemgentschenfelde",
+        "content": "!ai your perspective on Vietnam war?",
+        "timestamp": "2025-06-05T03:36:38.283310",
+        "message_id": "live_1749094598"
+      }
+    ]
+  },
+  "last_saved": "2025-06-05T03:39:54.361434"
+}
